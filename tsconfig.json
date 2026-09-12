@@ -5,9 +5,13 @@
     "outDir": "dist",
     "lib": ["ES2022"],
     "sourceMap": true,
-    "rootDir": "src",
+    "rootDir": "./",
+    "baseUrl": "./",
+    "paths": {
+      "vscode": ["./test/mocks/vscode.ts"]
+    },
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "test/**/*"]
 }
