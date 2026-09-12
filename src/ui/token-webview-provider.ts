@@ -141,17 +141,21 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground);
     }
     .btn-refresh {
-      background: none;
-      border: none;
-      color: var(--vscode-button-background);
+      background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.2));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+      border: 1px solid var(--vscode-button-border, rgba(128, 128, 128, 0.25));
+      border-radius: var(--radius);
+      padding: 4px 10px;
       cursor: pointer;
-      font-size: var(--font-size-sm);
+      font-size: var(--font-size-base);
+      font-weight: 500;
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
+      transition: background 0.15s ease;
     }
     .btn-refresh:hover {
-      text-decoration: underline;
+      background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.3));
     }
     .active-session-name {
       font-size: var(--font-size-base);
