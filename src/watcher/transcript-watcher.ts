@@ -4,11 +4,13 @@ import * as os from 'node:os';
 import { TokenEngine } from '../engine/token-engine';
 import { parseTranscriptLine } from '../parser/transcript-parser';
 import { TitleResolver } from '../parser/title-resolver';
+import { WorkspaceResolver } from '../parser/workspace-resolver';
 import { TokenMetrics, SessionSummary } from '../models/types';
 
 export interface WatcherOptions {
   customBrainPath?: string;
   customDbPath?: string;
+  customWorkspaceStorageDir?: string;
   model?: string;
   onUpdate?: (metrics: TokenMetrics) => void;
 }
@@ -20,12 +22,14 @@ export class TranscriptWatcher {
   private currentWatcher?: fs.FSWatcher;
   private currentActiveConvId?: string;
   private titleResolver: TitleResolver;
+  private workspaceResolver: WorkspaceResolver;
 
   constructor(options: WatcherOptions = {}) {
     this.brainPath = options.customBrainPath || path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain');
     this.model = options.model || 'gemini-2.5-flash';
     this.onUpdate = options.onUpdate;
     this.titleResolver = new TitleResolver(options.customDbPath);
+    this.workspaceResolver = new WorkspaceResolver({ customWorkspaceStorageDir: options.customWorkspaceStorageDir });
   }
 
   public getBrainPath(): string {
@@ -34,6 +38,10 @@ export class TranscriptWatcher {
 
   public getTitleResolver(): TitleResolver {
     return this.titleResolver;
+  }
+
+  public getWorkspaceResolver(): WorkspaceResolver {
+    return this.workspaceResolver;
   }
 
   public findActiveConversation(): { conversationId: string; transcriptPath: string; mtime: number } | null {
@@ -79,6 +87,7 @@ export class TranscriptWatcher {
     }
     const metrics = engine.getMetrics();
     metrics.title = this.titleResolver.resolveTitle(resolvedId, filePath);
+    metrics.workspace = this.workspaceResolver.resolveWorkspace(resolvedId, filePath);
     return metrics;
   }
 
@@ -95,10 +104,13 @@ export class TranscriptWatcher {
           const metrics = this.parseConversationFile(transcriptPath, entry.name);
           if (metrics) {
             const title = this.titleResolver.resolveTitle(entry.name, transcriptPath);
+            const workspace = this.workspaceResolver.resolveWorkspace(entry.name, transcriptPath);
             metrics.title = title;
+            metrics.workspace = workspace;
             sessions.push({
               conversationId: entry.name,
               title,
+              workspace,
               transcriptPath,
               lastModifiedTime: stat.mtimeMs,
               metrics
