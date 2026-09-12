@@ -4,8 +4,8 @@ A VS Code extension built for Antigravity IDE to monitor live token usage and es
 
 ## Features
 - **Real-Time Status Bar**: Displays current conversation total tokens and cost (`$(pulse) 24.5k tok (~$0.02)`). Click to focus the sidebar.
-- **Interactive Webview Sidebar**: Displays real-time conversation metrics (Prompt vs Completion tokens, cost, steps) and an interactive Recent Sessions table with live status indicators, session titles, and one-click transcript navigation.
-- **Session Title Resolution**: Automatically resolves readable session titles from Antigravity IDE SQLite state DB and user prompts (`<USER_REQUEST>`) with fallback to short session IDs.
+- **Interactive Webview Sidebar**: Displays real-time conversation metrics (Prompt vs Completion tokens, cost, steps) and an interactive Recent Sessions table with live status indicators, session titles, workspace/project tags, and one-click transcript navigation.
+- **Session Title & Workspace Resolution**: Automatically resolves readable session titles and workspace names from Antigravity IDE SQLite state DB, `workspaceStorage`, and user prompts/tool-call paths.
 - **Incremental Log Watching**: Watches Antigravity's local transcripts (`~/.gemini/antigravity-ide/brain/<conv-id>/.system_generated/logs/transcript.jsonl`) with minimal resource footprint.
 - **Customizable Pricing Profile**: Default rates configured for Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 1.5 Flash, and Gemini 1.5 Pro.
 
