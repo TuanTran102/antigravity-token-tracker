@@ -72,3 +72,122 @@ describe('Transcript Watcher', () => {
     assert.strictEqual(recent[1].conversationId, 'conv-older');
   });
 });
+
+describe('Dynamic Active Session Tracking & Detection', () => {
+  let dynamicBaseDir: string;
+  let dynamicConvDir: string;
+
+  before(() => {
+    dynamicBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-test-dynamic-brain-'));
+    dynamicConvDir = path.join(dynamicBaseDir, 'conversations');
+    fs.mkdirSync(dynamicConvDir, { recursive: true });
+
+    const conv1 = path.join(dynamicBaseDir, 'conv-initial', '.system_generated', 'logs');
+    fs.mkdirSync(conv1, { recursive: true });
+    fs.writeFileSync(path.join(conv1, 'transcript.jsonl'), '{"step_index":0,"type":"USER_INPUT","content":"Initial"}\n');
+  });
+
+  after(() => {
+    fs.rmSync(dynamicBaseDir, { recursive: true, force: true });
+  });
+
+  it('should detect newly created session and trigger onUpdate via checkActiveConversation', () => {
+    let updatedMetrics: any = null;
+    const watcher = new TranscriptWatcher({
+      customBrainPath: dynamicBaseDir,
+      customConversationsDir: dynamicConvDir,
+      pollIntervalMs: 0,
+      onUpdate: (metrics) => {
+        updatedMetrics = metrics;
+      }
+    });
+
+    try {
+      watcher.startWatching();
+      assert.strictEqual(watcher.getActiveConversationId(), 'conv-initial');
+
+      // Create new session directory and transcript with newer mtime
+      const conv2 = path.join(dynamicBaseDir, 'conv-created-later', '.system_generated', 'logs');
+      fs.mkdirSync(conv2, { recursive: true });
+      const futureTime = new Date(Date.now() + 2000);
+      fs.writeFileSync(
+        path.join(conv2, 'transcript.jsonl'),
+        '{"step_index":0,"type":"USER_INPUT","content":"New session prompt"}\n'
+      );
+      fs.utimesSync(path.join(conv2, 'transcript.jsonl'), futureTime, futureTime);
+
+      const detected = watcher.checkActiveConversation();
+      assert.ok(detected);
+      assert.strictEqual(detected.conversationId, 'conv-created-later');
+      assert.ok(updatedMetrics);
+      assert.strictEqual(updatedMetrics.conversationId, 'conv-created-later');
+      assert.strictEqual(watcher.getActiveConversationId(), 'conv-created-later');
+    } finally {
+      watcher.stopWatching();
+    }
+  });
+
+  it('should switch active session when an older session receives newer updates', () => {
+    let updatedMetrics: any = null;
+    const watcher = new TranscriptWatcher({
+      customBrainPath: dynamicBaseDir,
+      customConversationsDir: dynamicConvDir,
+      pollIntervalMs: 0,
+      onUpdate: (metrics) => {
+        updatedMetrics = metrics;
+      }
+    });
+
+    try {
+      watcher.startWatching();
+      assert.strictEqual(watcher.getActiveConversationId(), 'conv-created-later');
+
+      // Update conv-initial with newest mtime and additional content
+      const conv1 = path.join(dynamicBaseDir, 'conv-initial', '.system_generated', 'logs');
+      const newestTime = new Date(Date.now() + 5000);
+      fs.appendFileSync(path.join(conv1, 'transcript.jsonl'), '{"step_index":1,"type":"USER_INPUT","content":"More input"}\n');
+      fs.utimesSync(path.join(conv1, 'transcript.jsonl'), newestTime, newestTime);
+
+      const switched = watcher.checkActiveConversation();
+      assert.ok(switched);
+      assert.strictEqual(switched.conversationId, 'conv-initial');
+      assert.strictEqual(watcher.getActiveConversationId(), 'conv-initial');
+      assert.ok(updatedMetrics);
+      assert.strictEqual(updatedMetrics.conversationId, 'conv-initial');
+    } finally {
+      watcher.stopWatching();
+    }
+  });
+
+  it('should handle startup when brainPath does not exist and recover when created', () => {
+    const nonExistentPath = path.join(dynamicBaseDir, 'late-brain');
+    let updatedMetrics: any = null;
+    const watcher = new TranscriptWatcher({
+      customBrainPath: nonExistentPath,
+      customConversationsDir: dynamicConvDir,
+      pollIntervalMs: 0,
+      onUpdate: (metrics) => {
+        updatedMetrics = metrics;
+      }
+    });
+
+    try {
+      // Must not throw
+      watcher.startWatching();
+      assert.strictEqual(watcher.getActiveConversationId(), undefined);
+
+      // Now create folder and session
+      const newConv = path.join(nonExistentPath, 'conv-recovered', '.system_generated', 'logs');
+      fs.mkdirSync(newConv, { recursive: true });
+      fs.writeFileSync(path.join(newConv, 'transcript.jsonl'), '{"step_index":0,"type":"USER_INPUT","content":"Hello"}\n');
+
+      const detected = watcher.checkActiveConversation();
+      assert.ok(detected);
+      assert.strictEqual(detected.conversationId, 'conv-recovered');
+      assert.strictEqual(watcher.getActiveConversationId(), 'conv-recovered');
+    } finally {
+      watcher.stopWatching();
+    }
+  });
+});
+
