@@ -1,0 +1,8 @@
+.git/**
+.opow/**
+.agent/**
+.worktrees/**
+test/**
+src/**
+tsconfig.json
+!dist/**
