@@ -10,7 +10,7 @@
 .design/
 
 # Dependencies & Build
-node_modules/
+node_modules
 dist/
 *.vsix
 
