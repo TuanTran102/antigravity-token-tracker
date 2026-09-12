@@ -1,0 +1,79 @@
+{
+  "name": "antigravity-token-tracker",
+  "displayName": "Antigravity Token Tracker",
+  "description": "Real-time conversation token and cost tracker for Antigravity IDE",
+  "version": "0.1.0",
+  "publisher": "antigravity-community",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "antigravity-token-tracker-explorer",
+          "title": "Token Tracker",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "antigravity-token-tracker-explorer": [
+        {
+          "id": "antigravity-token-tracker.sidebar",
+          "name": "Conversation Tokens"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "antigravityTokenTracker.refresh",
+        "title": "Refresh Token Metrics",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "antigravityTokenTracker.openTranscript",
+        "title": "Open Active Transcript File",
+        "icon": "$(file-text)"
+      }
+    ],
+    "configuration": {
+      "title": "Antigravity Token Tracker",
+      "properties": {
+        "antigravityTokenTracker.brainPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to Antigravity brain directory (defaults to ~/.gemini/antigravity-ide/brain/)"
+        },
+        "antigravityTokenTracker.model": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "enum": [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+          ],
+          "description": "Default pricing profile model"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
