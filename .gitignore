@@ -1,0 +1,14 @@
+# Open-Power & AI Agents
+.opow/
+.agent/
+.cline/
+.clinerules/
+.claude/
+.codex/
+.superpowers/
+.worktrees/
+.design/
+
+# macOS
+.DS_Store
+._*
