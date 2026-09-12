@@ -86,6 +86,7 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
               <span class="session-title">${this.escapeHtml(title)}</span>
             </div>
           </td>
+          <td class="col-workspace font-mono" title="${this.escapeHtml(session.workspace || '')}">${this.escapeHtml(session.workspace || '—')}</td>
           <td class="col-tokens font-mono">${tokensFormatted}</td>
           <td class="col-cost font-mono">${costFormatted}</td>
           <td class="col-time">${timeStr}</td>
@@ -271,6 +272,24 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
       display: inline-block;
       font-weight: 500;
     }
+    .col-workspace {
+      max-width: 90px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+    }
+    .active-ws-tag {
+      font-size: 10px;
+      font-weight: normal;
+      background: var(--vscode-badge-background, rgba(128, 128, 128, 0.2));
+      color: var(--vscode-badge-foreground, inherit);
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
     .col-tokens, .col-cost {
       text-align: right;
       white-space: nowrap;
@@ -297,6 +316,7 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
     </div>
     <div class="active-session-name" title="${this.escapeHtml(activeTitle)}">
       ${this.escapeHtml(activeTitle)}
+      ${active?.workspace ? `<span class="active-ws-tag font-mono">${this.escapeHtml(active.workspace)}</span>` : ''}
     </div>
     <div class="metrics-grid">
       <div class="metric-box">
@@ -323,20 +343,21 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
     <span style="font-size: 10px;">${recentSessions.length} sessions</span>
   </div>
 
-  <input type="text" class="search-box" id="searchInput" placeholder="Tìm theo tên session..." />
+  <input type="text" class="search-box" id="searchInput" placeholder="Tìm theo tên session hoặc workspace..." />
 
   <div class="table-container">
     <table id="sessionsTable">
       <thead>
         <tr>
           <th>Tên Session</th>
+          <th>Workspace</th>
           <th style="text-align: right;">Tokens</th>
           <th style="text-align: right;">Chi phí</th>
           <th style="text-align: right;">Thời gian</th>
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || '<tr><td colspan="4" class="empty-state">Chưa có lịch sử session</td></tr>'}
+        ${rowsHtml || '<tr><td colspan="5" class="empty-state">Chưa có lịch sử session</td></tr>'}
       </tbody>
     </table>
   </div>
@@ -361,7 +382,8 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
       const term = e.target.value.toLowerCase();
       document.querySelectorAll('#sessionsTable tbody tr.session-row').forEach(row => {
         const titleEl = row.querySelector('.session-title');
-        const text = titleEl ? titleEl.textContent.toLowerCase() : '';
+        const wsEl = row.querySelector('.col-workspace');
+        const text = (titleEl ? titleEl.textContent.toLowerCase() : '') + ' ' + (wsEl ? wsEl.textContent.toLowerCase() : '');
         row.style.display = text.includes(term) ? '' : 'none';
       });
     });
