@@ -6,3 +6,4 @@ test/**
 src/**
 tsconfig.json
 !dist/**
+!resources/**
