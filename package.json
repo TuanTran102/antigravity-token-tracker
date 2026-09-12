@@ -10,8 +10,8 @@
   "categories": [
     "Other"
   ],
+  "license": "MIT",
   "activationEvents": [
-    "*",
     "onStartupFinished",
     "onView:antigravity-token-tracker.sidebar"
   ],

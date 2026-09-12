@@ -1,9 +1,13 @@
 .git/**
+.gitignore
 .opow/**
 .agent/**
 .worktrees/**
 test/**
 src/**
 tsconfig.json
-!dist/**
-!resources/**
+*.vsix
+dist/test/**
+**/._*
+._*
+**/.DS_Store
