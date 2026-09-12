@@ -29,6 +29,7 @@
     "views": {
       "antigravity-token-tracker-explorer": [
         {
+          "type": "webview",
           "id": "antigravity-token-tracker.sidebar",
           "name": "Conversation Tokens"
         }

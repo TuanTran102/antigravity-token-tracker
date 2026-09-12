@@ -3,10 +3,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { TokenEngine } from '../engine/token-engine';
 import { parseTranscriptLine } from '../parser/transcript-parser';
+import { TitleResolver } from '../parser/title-resolver';
 import { TokenMetrics, SessionSummary } from '../models/types';
 
 export interface WatcherOptions {
   customBrainPath?: string;
+  customDbPath?: string;
   model?: string;
   onUpdate?: (metrics: TokenMetrics) => void;
 }
@@ -17,15 +19,21 @@ export class TranscriptWatcher {
   private onUpdate?: (metrics: TokenMetrics) => void;
   private currentWatcher?: fs.FSWatcher;
   private currentActiveConvId?: string;
+  private titleResolver: TitleResolver;
 
   constructor(options: WatcherOptions = {}) {
     this.brainPath = options.customBrainPath || path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain');
     this.model = options.model || 'gemini-2.5-flash';
     this.onUpdate = options.onUpdate;
+    this.titleResolver = new TitleResolver(options.customDbPath);
   }
 
   public getBrainPath(): string {
     return this.brainPath;
+  }
+
+  public getTitleResolver(): TitleResolver {
+    return this.titleResolver;
   }
 
   public findActiveConversation(): { conversationId: string; transcriptPath: string; mtime: number } | null {
@@ -69,10 +77,12 @@ export class TranscriptWatcher {
         engine.processStep(step);
       }
     }
-    return engine.getMetrics();
+    const metrics = engine.getMetrics();
+    metrics.title = this.titleResolver.resolveTitle(resolvedId, filePath);
+    return metrics;
   }
 
-  public listRecentSessions(limit = 10): SessionSummary[] {
+  public listRecentSessions(limit = 15): SessionSummary[] {
     if (!fs.existsSync(this.brainPath)) return [];
     const entries = fs.readdirSync(this.brainPath, { withFileTypes: true });
     const sessions: SessionSummary[] = [];
@@ -84,8 +94,12 @@ export class TranscriptWatcher {
           const stat = fs.statSync(transcriptPath);
           const metrics = this.parseConversationFile(transcriptPath, entry.name);
           if (metrics) {
+            const title = this.titleResolver.resolveTitle(entry.name, transcriptPath);
+            metrics.title = title;
             sessions.push({
               conversationId: entry.name,
+              title,
+              transcriptPath,
               lastModifiedTime: stat.mtimeMs,
               metrics
             });

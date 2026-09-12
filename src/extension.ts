@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { TranscriptWatcher } from './watcher/transcript-watcher';
 import { StatusBarManager } from './ui/status-bar-manager';
-import { TokenTreeDataProvider } from './ui/token-tree-provider';
+import { TokenWebviewViewProvider } from './ui/token-webview-provider';
 
 let watcher: TranscriptWatcher | undefined;
 let statusBar: StatusBarManager | undefined;
-let treeProvider: TokenTreeDataProvider | undefined;
+let webviewProvider: TokenWebviewViewProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('antigravityTokenTracker');
@@ -21,19 +21,22 @@ export function activate(context: vscode.ExtensionContext): void {
     model,
     onUpdate: (metrics) => {
       statusBar?.update(metrics);
-      treeProvider?.setActiveMetrics(metrics);
+      webviewProvider?.setActiveMetrics(metrics);
     }
   });
 
-  treeProvider = new TokenTreeDataProvider(watcher);
-  vscode.window.registerTreeDataProvider('antigravity-token-tracker.sidebar', treeProvider as any);
+  const extUri = context.extensionUri || vscode.Uri.file(__dirname);
+  webviewProvider = new TokenWebviewViewProvider(extUri, watcher);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('antigravity-token-tracker.sidebar', webviewProvider as any)
+  );
 
   // Initial scan
   const active = watcher.findActiveConversation();
   if (active) {
     const initialMetrics = watcher.parseConversationFile(active.transcriptPath, active.conversationId);
     statusBar.update(initialMetrics);
-    treeProvider.setActiveMetrics(initialMetrics);
+    webviewProvider.setActiveMetrics(initialMetrics);
   }
 
   watcher.startWatching();
@@ -43,7 +46,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (current) {
       const metrics = watcher?.parseConversationFile(current.transcriptPath, current.conversationId);
       statusBar?.update(metrics || null);
-      treeProvider?.setActiveMetrics(metrics || null);
+      webviewProvider?.setActiveMetrics(metrics || null);
     }
     vscode.window.showInformationMessage('Antigravity Token Tracker refreshed.');
   });

@@ -3,6 +3,11 @@ export const StatusBarAlignment = {
   Right: 2
 };
 
+export const Uri = {
+  file: (fspath: string) => ({ fsPath: fspath, path: fspath, scheme: 'file' }),
+  parse: (uri: string) => ({ fsPath: uri, path: uri, scheme: 'file' })
+};
+
 export const window = {
   createStatusBarItem: (alignment: number, priority: number) => ({
     alignment,
@@ -15,6 +20,7 @@ export const window = {
     dispose: () => {}
   }),
   registerTreeDataProvider: () => ({ dispose: () => {} }),
+  registerWebviewViewProvider: (viewId: string, provider: any) => ({ dispose: () => {} }),
   showInformationMessage: () => Promise.resolve(),
   showWarningMessage: () => Promise.resolve(),
   showTextDocument: () => Promise.resolve()
