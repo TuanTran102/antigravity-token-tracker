@@ -29,6 +29,7 @@ export interface PricingRate {
 export interface TokenMetrics {
   conversationId: string;
   title?: string;
+  workspace?: string;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -40,6 +41,7 @@ export interface TokenMetrics {
 export interface SessionSummary {
   conversationId: string;
   title: string;
+  workspace?: string;
   transcriptPath: string;
   lastModifiedTime: number;
   metrics: TokenMetrics;

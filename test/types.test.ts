@@ -19,6 +19,20 @@ describe('Data Models Contracts', () => {
     assert.strictEqual(metrics.completionTokens, 500);
   });
 
+  it('should support optional workspace property in TokenMetrics and SessionSummary', () => {
+    const metrics: TokenMetrics = {
+      conversationId: 'conv-456',
+      workspace: 'agy-eval',
+      promptTokens: 100,
+      completionTokens: 50,
+      totalTokens: 150,
+      estimatedCostUsd: 0.0001,
+      stepCount: 1,
+      lastUpdated: new Date()
+    };
+    assert.strictEqual(metrics.workspace, 'agy-eval');
+  });
+
   it('should validate TranscriptStep using isValidTranscriptStep', () => {
     const validStep = {
       step_index: 2,
