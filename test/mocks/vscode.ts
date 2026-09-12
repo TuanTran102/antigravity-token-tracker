@@ -21,6 +21,7 @@ export const window = {
   }),
   registerTreeDataProvider: () => ({ dispose: () => {} }),
   registerWebviewViewProvider: (viewId: string, provider: any) => ({ dispose: () => {} }),
+  onDidChangeWindowState: (listener: (e: { focused: boolean }) => any) => ({ dispose: () => {} }),
   showInformationMessage: () => Promise.resolve(),
   showWarningMessage: () => Promise.resolve(),
   showTextDocument: () => Promise.resolve()

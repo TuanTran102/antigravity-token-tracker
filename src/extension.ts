@@ -41,12 +41,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
   watcher.startWatching();
 
+  const windowStateListener = vscode.window.onDidChangeWindowState((e) => {
+    if (e.focused) {
+      watcher?.checkActiveConversation();
+    }
+  });
+
   const refreshCommand = vscode.commands.registerCommand('antigravityTokenTracker.refresh', () => {
-    const current = watcher?.findActiveConversation();
-    if (current) {
-      const metrics = watcher?.parseConversationFile(current.transcriptPath, current.conversationId);
-      statusBar?.update(metrics || null);
-      webviewProvider?.setActiveMetrics(metrics || null);
+    const detected = watcher?.checkActiveConversation();
+    if (!detected) {
+      const current = watcher?.findActiveConversation();
+      if (current) {
+        const metrics = watcher?.parseConversationFile(current.transcriptPath, current.conversationId);
+        statusBar?.update(metrics || null);
+        webviewProvider?.setActiveMetrics(metrics || null);
+      }
     }
     vscode.window.showInformationMessage('Antigravity Token Tracker refreshed.');
   });
@@ -61,7 +70,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  context.subscriptions.push(refreshCommand, openTranscriptCommand);
+  context.subscriptions.push(windowStateListener, refreshCommand, openTranscriptCommand);
 }
 
 export function deactivate(): void {

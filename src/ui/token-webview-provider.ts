@@ -29,10 +29,13 @@ export class TokenWebviewViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.command) {
         case 'refresh': {
-          const current = this.watcher.findActiveConversation();
-          if (current) {
-            const metrics = this.watcher.parseConversationFile(current.transcriptPath, current.conversationId);
-            this.setActiveMetrics(metrics);
+          const detected = this.watcher.checkActiveConversation();
+          if (!detected) {
+            const current = this.watcher.findActiveConversation();
+            if (current) {
+              const metrics = this.watcher.parseConversationFile(current.transcriptPath, current.conversationId);
+              this.setActiveMetrics(metrics);
+            }
           }
           this.refresh();
           break;
