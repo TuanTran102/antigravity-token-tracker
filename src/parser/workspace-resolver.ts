@@ -1,165 +1,142 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as cp from 'node:child_process';
 
 export interface WorkspaceResolverOptions {
+  customConversationsDir?: string;
+  customGlobalStorageDbPath?: string;
   customWorkspaceStorageDir?: string;
 }
 
 export class WorkspaceResolver {
   private workspaceCache: Map<string, string | undefined> = new Map();
-  private knownWorkspaces: string[] = [];
-  private workspacesLoaded = false;
-  private customWorkspaceStorageDir?: string;
+  private customConversationsDir?: string;
+  private customGlobalStorageDbPath?: string;
+  private globalCacheLoaded = false;
+  private globalSummariesCache: Map<string, string> = new Map();
 
   constructor(options: WorkspaceResolverOptions = {}) {
-    this.customWorkspaceStorageDir = options.customWorkspaceStorageDir;
+    this.customConversationsDir = options.customConversationsDir;
+    this.customGlobalStorageDbPath = options.customGlobalStorageDbPath;
   }
 
-  private ensureWorkspacesLoaded(): void {
-    if (this.workspacesLoaded) return;
-    this.workspacesLoaded = true;
+  private extractFromConversationDb(conversationId: string): string | undefined {
+    const convDir = this.customConversationsDir || path.join(
+      os.homedir(),
+      '.gemini',
+      'antigravity-ide',
+      'conversations'
+    );
+    const dbPath = path.join(convDir, `${conversationId}.db`);
+    if (!fs.existsSync(dbPath)) {
+      return undefined;
+    }
 
-    const storageDir = this.customWorkspaceStorageDir || path.join(
+    try {
+      const raw = cp.execFileSync('sqlite3', [
+        dbPath,
+        'SELECT quote(data) FROM trajectory_metadata_blob WHERE id="main";'
+      ], { encoding: 'utf8', timeout: 2000 }).trim();
+
+      if (raw.startsWith("X'") && raw.endsWith("'")) {
+        const hex = raw.slice(2, -1);
+        const buf = Buffer.from(hex, 'hex');
+        const text = buf.toString('utf8');
+        const m = text.match(/file:\/\/\/([^\x00-\x1f\x7f-\xff\"'\s\)\:\;]+)/);
+        if (m) {
+          const decoded = decodeURIComponent(m[1]).replace(/\/+$/, '');
+          const wsName = path.basename(decoded);
+          if (wsName) return wsName;
+        }
+      }
+    } catch {
+      // Graceful fallback if db is locked or unreadable
+    }
+    return undefined;
+  }
+
+  private ensureGlobalStorageLoaded(): void {
+    if (this.globalCacheLoaded) return;
+    this.globalCacheLoaded = true;
+
+    const stateDbPath = this.customGlobalStorageDbPath || path.join(
       os.homedir(),
       'Library',
       'Application Support',
       'Antigravity IDE',
       'User',
-      'workspaceStorage'
+      'globalStorage',
+      'state.vscdb'
     );
 
-    if (!fs.existsSync(storageDir)) return;
+    if (!fs.existsSync(stateDbPath)) return;
 
     try {
-      const entries = fs.readdirSync(storageDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const wsJsonPath = path.join(storageDir, entry.name, 'workspace.json');
-          if (fs.existsSync(wsJsonPath)) {
+      const raw = cp.execFileSync('sqlite3', [
+        stateDbPath,
+        "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.trajectorySummaries';"
+      ], { encoding: 'utf8', timeout: 3000 }).trim();
+
+      if (!raw) return;
+
+      const outerBuf = Buffer.from(raw, 'base64');
+      const lines = outerBuf.toString('utf8').split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const idMatch = line.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+          || line.trim().match(/^([a-zA-Z0-9_\-]+)$/);
+        if (idMatch && i + 1 < lines.length) {
+          const id = idMatch[1];
+          const nextLine = lines[i + 1];
+          const b64Regex = /[A-Za-z0-9+/=]{20,}/g;
+          let b64Match;
+          while ((b64Match = b64Regex.exec(nextLine)) !== null) {
             try {
-              const data = JSON.parse(fs.readFileSync(wsJsonPath, 'utf8'));
-              if (typeof data.folder === 'string') {
-                const rawPath = data.folder.replace(/^file:\/\//, '');
-                const decoded = decodeURIComponent(rawPath).replace(/\/+$/, '');
-                if (decoded && !this.knownWorkspaces.includes(decoded)) {
-                  this.knownWorkspaces.push(decoded);
+              const decodedBuf = Buffer.from(b64Match[0], 'base64');
+              const text = decodedBuf.toString('utf8');
+              const m = text.match(/file:\/\/\/([^\x00-\x1f\x7f-\xff\"'\s\)\:\;]+)/);
+              if (m) {
+                const full = '/' + decodeURIComponent(m[1]).replace(/\/+$/, '');
+                const wsName = path.basename(full);
+                if (wsName) {
+                  this.globalSummariesCache.set(id, wsName);
+                  break;
                 }
               }
             } catch {
-              // Skip invalid json
+              // Skip line parse error
             }
           }
         }
       }
-      // Sort longest first to prioritize more specific nested workspace roots
-      this.knownWorkspaces.sort((a, b) => b.length - a.length);
     } catch {
-      // Graceful fallback if storage cannot be accessed
+      // Graceful fallback
     }
   }
 
-  public resolveWorkspace(conversationId: string, transcriptPath?: string): string | undefined {
+  public resolveWorkspace(conversationId: string, _transcriptPath?: string): string | undefined {
     if (this.workspaceCache.has(conversationId)) {
       return this.workspaceCache.get(conversationId);
     }
 
-    if (!transcriptPath || !fs.existsSync(transcriptPath)) {
-      return undefined;
+    // Priority 1: Read real-time conversation db
+    const convWs = this.extractFromConversationDb(conversationId);
+    if (convWs) {
+      this.workspaceCache.set(conversationId, convWs);
+      return convWs;
     }
 
-    this.ensureWorkspacesLoaded();
-
-    try {
-      const content = fs.readFileSync(transcriptPath, 'utf8');
-      const lines = content.split('\n');
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line);
-          const text = parsed.content || '';
-
-          // 1. Check URI mapping: [URI] -> [CorpusName]: <URI>
-          const uriMatch = text.match(/\[URI\] -> \[CorpusName\]:\s*([^\s\n]+)/);
-          if (uriMatch) {
-            const raw = uriMatch[1].replace(/^file:\/\//, '').replace(/\/+$/, '');
-            const decoded = decodeURIComponent(raw);
-            const wsName = path.basename(decoded).replace(/["']/g, '');
-            if (wsName) {
-              this.workspaceCache.set(conversationId, wsName);
-              return wsName;
-            }
-          }
-
-          // 2. Check for known workspace paths anywhere in text
-          for (const kw of this.knownWorkspaces) {
-            if (text.includes(kw)) {
-              const wsName = path.basename(kw).replace(/["']/g, '');
-              this.workspaceCache.set(conversationId, wsName);
-              return wsName;
-            }
-          }
-
-          // 3. Check Active Document: <path>
-          const docMatch = text.match(/Active Document:\s*([^\s\n\(]+)/);
-          if (docMatch) {
-            const docPath = docMatch[1].replace(/["']/g, '');
-            for (const kw of this.knownWorkspaces) {
-              if (docPath.startsWith(kw)) {
-                const wsName = path.basename(kw).replace(/["']/g, '');
-                this.workspaceCache.set(conversationId, wsName);
-                return wsName;
-              }
-            }
-            const fallbackMatch = docPath.match(/(?:Projects|workspaces|workspace|repos|source)\/([^\/\s\n"']+)/i);
-            if (fallbackMatch && fallbackMatch[1]) {
-              const wsName = fallbackMatch[1];
-              this.workspaceCache.set(conversationId, wsName);
-              return wsName;
-            }
-          }
-
-          // 4. Check tool calls arguments
-          if (Array.isArray(parsed.tool_calls)) {
-            for (const tc of parsed.tool_calls) {
-              let args = tc.arguments || tc.args;
-              if (typeof args === 'string') {
-                try {
-                  args = JSON.parse(args);
-                } catch {
-                  // Ignore JSON parse error
-                }
-              }
-              if (args && typeof args === 'object') {
-                const candidatePath = (args.Cwd || args.DirectoryPath || args.SearchPath || args.AbsolutePath || args.TargetFile) as string | undefined;
-                if (typeof candidatePath === 'string') {
-                  const cleaned = candidatePath.replace(/["']/g, '');
-                  for (const kw of this.knownWorkspaces) {
-                    if (cleaned.startsWith(kw)) {
-                      const wsName = path.basename(kw).replace(/["']/g, '');
-                      this.workspaceCache.set(conversationId, wsName);
-                      return wsName;
-                    }
-                  }
-                  const fallbackMatch = cleaned.match(/(?:Projects|workspaces|workspace|repos|source)\/([^\/\s\n"']+)/i);
-                  if (fallbackMatch && fallbackMatch[1]) {
-                    const wsName = fallbackMatch[1];
-                    this.workspaceCache.set(conversationId, wsName);
-                    return wsName;
-                  }
-                }
-              }
-            }
-          }
-        } catch {
-          // Skip invalid JSON lines
-        }
-      }
-    } catch {
-      // Graceful error handling
+    // Priority 2: Fallback to global state.vscdb
+    this.ensureGlobalStorageLoaded();
+    if (this.globalSummariesCache.has(conversationId)) {
+      const globalWs = this.globalSummariesCache.get(conversationId);
+      this.workspaceCache.set(conversationId, globalWs);
+      return globalWs;
     }
 
+    // Priority 3: Do NOT guess via regex transcript; return undefined
     this.workspaceCache.set(conversationId, undefined);
     return undefined;
   }

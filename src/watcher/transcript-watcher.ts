@@ -11,6 +11,8 @@ export interface WatcherOptions {
   customBrainPath?: string;
   customDbPath?: string;
   customWorkspaceStorageDir?: string;
+  customConversationsDir?: string;
+  customGlobalStorageDbPath?: string;
   model?: string;
   onUpdate?: (metrics: TokenMetrics) => void;
 }
@@ -29,7 +31,11 @@ export class TranscriptWatcher {
     this.model = options.model || 'gemini-2.5-flash';
     this.onUpdate = options.onUpdate;
     this.titleResolver = new TitleResolver(options.customDbPath);
-    this.workspaceResolver = new WorkspaceResolver({ customWorkspaceStorageDir: options.customWorkspaceStorageDir });
+    this.workspaceResolver = new WorkspaceResolver({
+      customWorkspaceStorageDir: options.customWorkspaceStorageDir,
+      customConversationsDir: options.customConversationsDir,
+      customGlobalStorageDbPath: options.customGlobalStorageDbPath
+    });
   }
 
   public getBrainPath(): string {
