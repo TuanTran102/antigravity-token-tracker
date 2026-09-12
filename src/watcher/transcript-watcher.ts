@@ -14,6 +14,7 @@ export interface WatcherOptions {
   customConversationsDir?: string;
   customGlobalStorageDbPath?: string;
   model?: string;
+  pollIntervalMs?: number;
   onUpdate?: (metrics: TokenMetrics) => void;
 }
 
@@ -22,6 +23,11 @@ export class TranscriptWatcher {
   private model: string;
   private onUpdate?: (metrics: TokenMetrics) => void;
   private currentWatcher?: fs.FSWatcher;
+  private brainWatcher?: fs.FSWatcher;
+  private pollInterval?: NodeJS.Timeout;
+  private debounceTimer?: NodeJS.Timeout;
+  private lastProcessedMtime: number = 0;
+  private pollIntervalMs: number;
   private currentActiveConvId?: string;
   private titleResolver: TitleResolver;
   private workspaceResolver: WorkspaceResolver;
@@ -29,6 +35,7 @@ export class TranscriptWatcher {
   constructor(options: WatcherOptions = {}) {
     this.brainPath = options.customBrainPath || path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain');
     this.model = options.model || 'gemini-2.5-flash';
+    this.pollIntervalMs = options.pollIntervalMs !== undefined ? options.pollIntervalMs : 2000;
     this.onUpdate = options.onUpdate;
     this.titleResolver = new TitleResolver(options.customDbPath);
     this.workspaceResolver = new WorkspaceResolver({
@@ -48,6 +55,10 @@ export class TranscriptWatcher {
 
   public getWorkspaceResolver(): WorkspaceResolver {
     return this.workspaceResolver;
+  }
+
+  public getActiveConversationId(): string | undefined {
+    return this.currentActiveConvId;
   }
 
   public findActiveConversation(): { conversationId: string; transcriptPath: string; mtime: number } | null {
@@ -74,6 +85,78 @@ export class TranscriptWatcher {
       }
     }
     return latest;
+  }
+
+  public checkActiveConversation(): TokenMetrics | null {
+    if (!fs.existsSync(this.brainPath)) {
+      return null;
+    }
+
+    if (!this.brainWatcher) {
+      this.setupBrainWatcher();
+    }
+
+    const active = this.findActiveConversation();
+    if (!active) {
+      return null;
+    }
+
+    if (active.conversationId !== this.currentActiveConvId || active.mtime > this.lastProcessedMtime) {
+      if (this.currentWatcher) {
+        this.currentWatcher.close();
+        this.currentWatcher = undefined;
+      }
+
+      this.currentActiveConvId = active.conversationId;
+      this.lastProcessedMtime = active.mtime;
+
+      try {
+        this.currentWatcher = fs.watch(active.transcriptPath, (eventType: string) => {
+          if (eventType === 'change' || eventType === 'rename') {
+            const updated = this.parseConversationFile(active.transcriptPath, active.conversationId);
+            if (updated) {
+              try {
+                const stat = fs.statSync(active.transcriptPath);
+                this.lastProcessedMtime = stat.mtimeMs;
+              } catch {
+                // ignore
+              }
+              if (this.onUpdate) {
+                this.onUpdate(updated);
+              }
+            }
+          }
+        });
+      } catch {
+        // Graceful fallback for non-existing or locked paths
+      }
+
+      const metrics = this.parseConversationFile(active.transcriptPath, active.conversationId);
+      if (metrics && this.onUpdate) {
+        this.onUpdate(metrics);
+      }
+      return metrics;
+    }
+
+    return null;
+  }
+
+  private setupBrainWatcher(): void {
+    if (!fs.existsSync(this.brainPath) || this.brainWatcher) {
+      return;
+    }
+    try {
+      this.brainWatcher = fs.watch(this.brainPath, { recursive: false }, () => {
+        if (this.debounceTimer) {
+          clearTimeout(this.debounceTimer);
+        }
+        this.debounceTimer = setTimeout(() => {
+          this.checkActiveConversation();
+        }, 200);
+      });
+    } catch {
+      // Graceful fallback
+    }
   }
 
   public parseConversationFile(filePath: string, convId?: string): TokenMetrics | null {
@@ -129,32 +212,37 @@ export class TranscriptWatcher {
   }
 
   public startWatching(): void {
-    const active = this.findActiveConversation();
-    if (!active) return;
-    this.currentActiveConvId = active.conversationId;
+    this.checkActiveConversation();
+    this.setupBrainWatcher();
 
-    if (this.currentWatcher) {
-      this.currentWatcher.close();
-    }
-
-    try {
-      this.currentWatcher = fs.watch(active.transcriptPath, (eventType: string) => {
-        if (eventType === 'change' || eventType === 'rename') {
-          const updated = this.parseConversationFile(active.transcriptPath, active.conversationId);
-          if (updated && this.onUpdate) {
-            this.onUpdate(updated);
-          }
-        }
-      });
-    } catch {
-      // Graceful fallback for non-existing or locked paths
+    if (this.pollIntervalMs > 0 && !this.pollInterval) {
+      this.pollInterval = setInterval(() => {
+        this.checkActiveConversation();
+      }, this.pollIntervalMs);
+      if (typeof this.pollInterval.unref === 'function') {
+        this.pollInterval.unref();
+      }
     }
   }
 
   public stopWatching(): void {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = undefined;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
+    if (this.brainWatcher) {
+      this.brainWatcher.close();
+      this.brainWatcher = undefined;
+    }
     if (this.currentWatcher) {
       this.currentWatcher.close();
       this.currentWatcher = undefined;
     }
+    this.currentActiveConvId = undefined;
+    this.lastProcessedMtime = 0;
   }
 }
