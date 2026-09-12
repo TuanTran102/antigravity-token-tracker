@@ -12,6 +12,7 @@
 # Dependencies & Build
 node_modules/
 dist/
+*.vsix
 
 # macOS
 .DS_Store
