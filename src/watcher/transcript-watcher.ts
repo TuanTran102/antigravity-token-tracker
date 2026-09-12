@@ -1,6 +1,6 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import { TokenEngine } from '../engine/token-engine';
 import { parseTranscriptLine } from '../parser/transcript-parser';
 import { TokenMetrics, SessionSummary } from '../models/types';
@@ -106,7 +106,7 @@ export class TranscriptWatcher {
     }
 
     try {
-      this.currentWatcher = fs.watch(active.transcriptPath, (eventType) => {
+      this.currentWatcher = fs.watch(active.transcriptPath, (eventType: string) => {
         if (eventType === 'change' || eventType === 'rename') {
           const updated = this.parseConversationFile(active.transcriptPath, active.conversationId);
           if (updated && this.onUpdate) {

@@ -7,11 +7,13 @@
     "sourceMap": true,
     "rootDir": "./",
     "baseUrl": "./",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
     "paths": {
       "vscode": ["./test/mocks/vscode.ts"]
     },
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["src/**/*"]
 }
