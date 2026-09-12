@@ -3,140 +3,96 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import cp from 'node:child_process';
 import { WorkspaceResolver } from '../src/parser/workspace-resolver';
 
-describe('Workspace Resolver', () => {
+describe('Workspace Resolver (SQLite-based)', () => {
   let tempDir: string;
-  let customWsStorageDir: string;
+  let customConvDir: string;
+  let customStateDbPath: string;
 
   before(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-ws-test-'));
-    customWsStorageDir = path.join(tempDir, 'workspaceStorage');
-    fs.mkdirSync(customWsStorageDir, { recursive: true });
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-ws-sql-test-'));
+    customConvDir = path.join(tempDir, 'conversations');
+    fs.mkdirSync(customConvDir, { recursive: true });
 
-    // Mock a known workspace
-    const ws1 = path.join(customWsStorageDir, 'hash1');
-    fs.mkdirSync(ws1, { recursive: true });
-    fs.writeFileSync(
-      path.join(ws1, 'workspace.json'),
-      JSON.stringify({ folder: 'file:///Volumes/KIOXIA/Projects/hozilo-tv' })
-    );
+    // 1. Create a mock conversation db with trajectory_metadata_blob
+    const convId1 = 'conv-realtime-1';
+    const dbPath1 = path.join(customConvDir, `${convId1}.db`);
+    const hexBlob1 = Buffer.from('\n)file:///Volumes/KIOXIA/Projects/agy-eval\x12)file:///Volumes/KIOXIA/Projects/agy-eval\x1aETuanTran102/antigravity-token-tracker').toString('hex');
+    cp.execFileSync('sqlite3', [
+      dbPath1,
+      `CREATE TABLE trajectory_metadata_blob (id text PRIMARY KEY, data blob);
+       INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', X'${hexBlob1}');`
+    ]);
 
-    const ws2 = path.join(customWsStorageDir, 'hash2');
-    fs.mkdirSync(ws2, { recursive: true });
-    fs.writeFileSync(
-      path.join(ws2, 'workspace.json'),
-      JSON.stringify({ folder: 'file:///Volumes/KIOXIA/Projects/agy-eval' })
-    );
+    // 2. Create mock state.vscdb for fallback
+    customStateDbPath = path.join(tempDir, 'state.vscdb');
+    const convId2 = 'conv-fallback-2';
+    const innerBuf = Buffer.concat([
+      Buffer.from([0x0a, 0x0c]),
+      Buffer.from('Test Session'),
+      Buffer.from('\n)file:///Volumes/KIOXIA/Projects/hozilo-tv')
+    ]);
+    const nextLineBase64 = innerBuf.toString('base64');
+    const summariesText = `${convId2}\n${nextLineBase64}\n`;
+    const summariesBase64 = Buffer.from(summariesText).toString('base64');
+
+    cp.execFileSync('sqlite3', [
+      customStateDbPath,
+      `CREATE TABLE ItemTable (key text PRIMARY KEY, value text);
+       INSERT INTO ItemTable (key, value) VALUES ('antigravityUnifiedStateSync.trajectorySummaries', '${summariesBase64}');`
+    ]);
   });
 
   after(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should resolve workspace from Active Document matching known workspaceStorage', () => {
-    const transcriptPath = path.join(tempDir, 'transcript-active-doc.jsonl');
-    fs.writeFileSync(
-      transcriptPath,
-      JSON.stringify({
-        step_index: 0,
-        type: 'USER_INPUT',
-        content: 'hello\nActive Document: /Volumes/KIOXIA/Projects/hozilo-tv/package.json (LANGUAGE_JSON)'
-      }) + '\n'
-    );
-
-    const resolver = new WorkspaceResolver({ customWorkspaceStorageDir: customWsStorageDir });
-    const ws = resolver.resolveWorkspace('conv-1', transcriptPath);
-    assert.strictEqual(ws, 'hozilo-tv');
-  });
-
-  it('should resolve workspace from tool call Cwd or AbsolutePath', () => {
-    const transcriptPath = path.join(tempDir, 'transcript-tool-call.jsonl');
-    fs.writeFileSync(
-      transcriptPath,
-      JSON.stringify({
-        step_index: 0,
-        type: 'PLANNER_RESPONSE',
-        tool_calls: [
-          {
-            name: 'run_command',
-            args: { Cwd: '/Volumes/KIOXIA/Projects/agy-eval', CommandLine: 'git status' }
-          }
-        ]
-      }) + '\n'
-    );
-
-    const resolver = new WorkspaceResolver({ customWorkspaceStorageDir: customWsStorageDir });
-    const ws = resolver.resolveWorkspace('conv-2', transcriptPath);
+  it('should resolve workspace from conversation db (Priority 1)', () => {
+    const resolver = new WorkspaceResolver({
+      customConversationsDir: customConvDir,
+      customGlobalStorageDbPath: customStateDbPath
+    });
+    const ws = resolver.resolveWorkspace('conv-realtime-1');
     assert.strictEqual(ws, 'agy-eval');
   });
 
-  it('should resolve workspace using path regex fallback when workspaceStorage does not have it', () => {
-    const transcriptPath = path.join(tempDir, 'transcript-fallback.jsonl');
-    fs.writeFileSync(
-      transcriptPath,
-      JSON.stringify({
-        step_index: 0,
-        type: 'USER_INPUT',
-        content: 'Fix bug\nActive Document: /Users/developer/Projects/open-power/src/index.ts (LANGUAGE_TS)'
-      }) + '\n'
-    );
-
-    const resolver = new WorkspaceResolver({ customWorkspaceStorageDir: customWsStorageDir });
-    const ws = resolver.resolveWorkspace('conv-3', transcriptPath);
-    assert.strictEqual(ws, 'open-power');
+  it('should fallback to state.vscdb when conversation db is absent (Priority 2)', () => {
+    const resolver = new WorkspaceResolver({
+      customConversationsDir: customConvDir,
+      customGlobalStorageDbPath: customStateDbPath
+    });
+    const ws = resolver.resolveWorkspace('conv-fallback-2');
+    assert.strictEqual(ws, 'hozilo-tv');
   });
 
-  it('should resolve workspace from URI to CorpusName mapping', () => {
-    const transcriptPath = path.join(tempDir, 'transcript-corpus.jsonl');
+  it('should NOT read workspace from transcript paths even if transcript has foreign paths', () => {
+    const transcriptPath = path.join(tempDir, 'fake-transcript.jsonl');
     fs.writeFileSync(
       transcriptPath,
       JSON.stringify({
         step_index: 0,
         type: 'USER_INPUT',
-        content: 'Test [URI] -> [CorpusName]: /Users/developer/workspace/custom-app -> MyCorpus'
+        content: 'Active Document: /Volumes/KIOXIA/Projects/foreign-project/index.ts'
       }) + '\n'
     );
 
-    const resolver = new WorkspaceResolver({ customWorkspaceStorageDir: customWsStorageDir });
-    const ws = resolver.resolveWorkspace('conv-4', transcriptPath);
-    assert.strictEqual(ws, 'custom-app');
+    const resolver = new WorkspaceResolver({
+      customConversationsDir: customConvDir,
+      customGlobalStorageDbPath: customStateDbPath
+    });
+    // conv-realtime-1 is agy-eval in DB, but transcript says foreign-project
+    const ws = resolver.resolveWorkspace('conv-realtime-1', transcriptPath);
+    assert.strictEqual(ws, 'agy-eval');
   });
 
-  it('should cache resolved workspace by conversationId', () => {
-    const transcriptPath = path.join(tempDir, 'transcript-cached.jsonl');
-    fs.writeFileSync(
-      transcriptPath,
-      JSON.stringify({
-        step_index: 0,
-        type: 'USER_INPUT',
-        content: 'Active Document: /Volumes/KIOXIA/Projects/hozilo-tv/app.json'
-      }) + '\n'
-    );
-
-    const resolver = new WorkspaceResolver({ customWorkspaceStorageDir: customWsStorageDir });
-    const ws1 = resolver.resolveWorkspace('conv-cache', transcriptPath);
-    assert.strictEqual(ws1, 'hozilo-tv');
-
-    // Remove file to ensure cache is hit
-    fs.unlinkSync(transcriptPath);
-    const ws2 = resolver.resolveWorkspace('conv-cache', transcriptPath);
-    assert.strictEqual(ws2, 'hozilo-tv');
-  });
-
-  it('should return undefined gracefully when no workspace info can be found', () => {
-    const transcriptPath = path.join(tempDir, 'transcript-empty.jsonl');
-    fs.writeFileSync(
-      transcriptPath,
-      JSON.stringify({
-        step_index: 0,
-        type: 'USER_INPUT',
-        content: 'Hello world without any paths'
-      }) + '\n'
-    );
-
-    const resolver = new WorkspaceResolver({ customWorkspaceStorageDir: customWsStorageDir });
-    const ws = resolver.resolveWorkspace('conv-5', transcriptPath);
+  it('should return undefined when conversation is not found in either db', () => {
+    const resolver = new WorkspaceResolver({
+      customConversationsDir: customConvDir,
+      customGlobalStorageDbPath: customStateDbPath
+    });
+    const ws = resolver.resolveWorkspace('non-existent-conv');
     assert.strictEqual(ws, undefined);
   });
 });
